@@ -12,15 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       
-      - name: Create .env file
-        run: |
-          echo "KEYCLOAK_USER=${{ secrets.KEYCLOAK_USER }}" > .env
-          echo "KEYCLOAK_PASSWORD=${{ secrets.KEYCLOAK_PASSWORD }}" >> .env
-          echo "KEYCLOAK_URL=${{ secrets.KEYCLOAK_URL }}" >> .env
-          echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
-          echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
-          echo "CLOUDFLARE_TUNNEL_TOKEN=${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}" >> .env
-      
       - name: Deploy to server
         uses: appleboy/ssh-action@master
         with:
