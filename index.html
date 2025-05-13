@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Đăng nhập Google với Keycloak 24</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        h1 {
+            color: #2c3e50;
+        }
+        
+        .auth-section {
+            text-align: center;
+            margin: 30px 0;
+        }
+        
+        button {
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #3367D6;
+        }
+        
+        #logoutButton {
+            background-color: #DB4437;
+        }
+        
+        #logoutButton:hover {
+            background-color: #C53929;
+        }
+        
+        .user-info {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            display: none;
+        }
+        
+        .user-info h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        
+        .token-info {
+            margin-top: 20px;
+            background-color: #f0f8ff;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        
+        .token-info pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+            background-color: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow: auto;
+        }
+        
+        .status-message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Test Đăng nhập Google với Keycloak 24</h1>
+            <p>Sử dụng popup để đăng nhập thông qua Keycloak Identity Provider</p>
+        </header>
+        
+        <div class="auth-section">
+            <button id="loginButton" onclick="loginWithGoogle()">Đăng nhập với Google</button>
+            <button id="logoutButton" onclick="logout()" style="display: none;">Đăng xuất</button>
+        </div>
+        
+        <div id="statusMessage" class="status-message" style="display: none;"></div>
+        
+        <div id="userInfo" class="user-info">
+            <h3>Thông tin người dùng</h3>
+            <div id="userDetails"></div>
+        </div>
+        
+        <div id="tokenInfo" class="token-info">
+            <h3>Thông tin Token</h3>
+            <button onclick="toggleTokenDisplay()">Hiển thị/Ẩn Token</button>
+            <div id="tokenDetails" style="display: none;">
+                <h4>Access Token:</h4>
+                <pre id="accessToken"></pre>
+                <h4>ID Token Payload:</h4>
+                <pre id="idTokenPayload"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Cấu hình Keycloak - Cập nhật thông tin này theo cấu hình của bạn
+        const keycloakConfig = {
+            url: 'http://localhost:8080',            // URL của Keycloak server
+            realm: 'munan',                          // Tên realm của bạn
+            clientId: 'app',                      // Client ID đã cấu hình trong Keycloak
+            redirectUri: window.location.origin + '/callback.html'  // URI callback
+        };
+
+        // Hiển thị thông báo trạng thái
+        function showStatusMessage(message, isError = false) {
+            const statusElement = document.getElementById('statusMessage');
+            statusElement.textContent = message;
+            statusElement.className = 'status-message ' + (isError ? 'error' : 'success');
+            statusElement.style.display = 'block';
+            
+            // Ẩn thông báo sau 5 giây
+            setTimeout(() => {
+                statusElement.style.display = 'none';
+            }, 5000);
+        }
+
+        // Kiểm tra xem người dùng đã đăng nhập chưa
+        function checkLoginStatus() {
+            const expiresAt = localStorage.getItem('expires_at');
+            const accessToken = localStorage.getItem('access_token');
+            
+            if (accessToken && expiresAt && Date.now() < parseInt(expiresAt)) {
+                return true;
+            }
+            return false;
+        }
+
+        // Cập nhật giao diện người dùng dựa trên trạng thái đăng nhập
+        function updateUI() {
+            const isLoggedIn = checkLoginStatus();
+            const loginButton = document.getElementById('loginButton');
+            const logoutButton = document.getElementById('logoutButton');
+            const userInfo = document.getElementById('userInfo');
+            const tokenInfo = document.getElementById('tokenInfo');
+            
+            if (isLoggedIn) {
+                loginButton.style.display = 'none';
+                logoutButton.style.display = 'inline-block';
+                userInfo.style.display = 'block';
+                tokenInfo.style.display = 'block';
+                
+                // Hiển thị thông tin người dùng từ ID token
+                displayUserInfo();
+            } else {
+                loginButton.style.display = 'inline-block';
+                logoutButton.style.display = 'none';
+                userInfo.style.display = 'none';
+                tokenInfo.style.display = 'none';
+            }
+        }
+
+        // Hiển thị thông tin người dùng từ ID token
+        function displayUserInfo() {
+            const idToken = localStorage.getItem('id_token');
+            if (!idToken) return;
+            
+            try {
+                // Giải mã phần payload của ID token (phần thứ 2 sau khi split bởi dấu chấm)
+                const payload = JSON.parse(atob(idToken.split('.')[1]));
+                
+                // Hiển thị thông tin người dùng
+                const userDetails = document.getElementById('userDetails');
+                userDetails.innerHTML = `
+                    <p><strong>Tên:</strong> ${payload.name || 'N/A'}</p>
+                    <p><strong>Email:</strong> ${payload.email || 'N/A'}</p>
+                    <p><strong>Username:</strong> ${payload.preferred_username || 'N/A'}</p>
+                    <p><strong>ID:</strong> ${payload.sub || 'N/A'}</p>
+                `;
+                
+                // Hiển thị thông tin token
+                document.getElementById('accessToken').textContent = localStorage.getItem('access_token');
+                document.getElementById('idTokenPayload').textContent = JSON.stringify(payload, null, 2);
+            } catch (error) {
+                console.error('Lỗi khi giải mã token:', error);
+                showStatusMessage('Lỗi khi hiển thị thông tin người dùng', true);
+            }
+        }
+
+        // Hiển thị/Ẩn thông tin token
+        function toggleTokenDisplay() {
+            const tokenDetails = document.getElementById('tokenDetails');
+            tokenDetails.style.display = tokenDetails.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // Hàm lấy token từ authorization code
+        async function getTokenFromCode(code) {
+            try {
+                const tokenEndpoint = `${keycloakConfig.url}/realms/${keycloakConfig.realm}/protocol/openid-connect/token`;
+                
+                const formData = new URLSearchParams();
+                formData.append('grant_type', 'authorization_code');
+                formData.append('client_id', keycloakConfig.clientId);
+                formData.append('code', code);
+                formData.append('redirect_uri', keycloakConfig.redirectUri);
+                
+                const response = await fetch(tokenEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`Lỗi khi lấy token: ${errorData.error_description || response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Lỗi khi lấy token:', error);
+                throw error;
+            }
+        }
+
+        // Lưu token vào localStorage
+        function saveTokens(tokens) {
+            localStorage.setItem('access_token', tokens.access_token);
+            localStorage.setItem('refresh_token', tokens.refresh_token);
+            localStorage.setItem('id_token', tokens.id_token);
+            localStorage.setItem('expires_at', Date.now() + (tokens.expires_in * 1000));
+        }
+
+        // Đăng nhập với Google thông qua Keycloak
+        function loginWithGoogle() {
+            // Tạo state ngẫu nhiên để bảo mật
+            const state = Math.random().toString(36).substring(2, 15);
+            localStorage.setItem('oauth_state', state);
+            
+            // Tạo URL đăng nhập
+            const authUrl = `${keycloakConfig.url}/realms/${keycloakConfig.realm}/protocol/openid-connect/auth?client_id=${keycloakConfig.clientId}&response_type=code&scope=openid profile email&redirect_uri=${encodeURIComponent(keycloakConfig.redirectUri)}&state=${state}&kc_idp_hint=google`;
+            
+            // Mở popup
+            const popupWidth = 600;
+            const popupHeight = 700;
+            const left = (window.innerWidth - popupWidth) / 2;
+            const top = (window.innerHeight - popupHeight) / 2;
+            
+            const popupWindow = window.open(
+                authUrl,
+                'googleLoginPopup',
+                `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes,scrollbars=yes`
+            );
+            
+            if (!popupWindow) {
+                showStatusMessage('Popup bị chặn. Vui lòng cho phép popup cho trang web này.', true);
+                return;
+            }
+            
+            // Kiểm tra popup và xử lý kết quả
+            const checkPopup = setInterval(() => {
+                try {
+                    // Nếu popup đã đóng
+                    if (popupWindow.closed) {
+                        clearInterval(checkPopup);
+                        console.log('Popup đã đóng mà không hoàn thành xác thực');
+                        return;
+                    }
+                    
+                    // Kiểm tra URL của popup
+                    const popupUrl = popupWindow.location.href;
+                    
+                    // Nếu URL chứa callback URL của chúng ta
+                    if (popupUrl.startsWith(keycloakConfig.redirectUri)) {
+                        clearInterval(checkPopup);
+                        
+                        // Phân tích URL để lấy code và state
+                        const urlParams = new URLSearchParams(new URL(popupUrl).search);
+                        const code = urlParams.get('code');
+                        const state = urlParams.get('state');
+                        const error = urlParams.get('error');
+                        
+                        // Đóng popup
+                        popupWindow.close();
+                        
+                        // Kiểm tra lỗi
+                        if (error) {
+                            showStatusMessage(`Lỗi đăng nhập: ${error}`, true);
+                            return;
+                        }
+                        
+                        // Kiểm tra state để đảm bảo an toàn
+                        if (state !== localStorage.getItem('oauth_state')) {
+                            showStatusMessage('Lỗi bảo mật: State không khớp', true);
+                            return;
+                        }
+                        
+                        // Lấy token từ code
+                        if (code) {
+                            getTokenFromCode(code)
+                                .then(tokens => {
+                                    saveTokens(tokens);
+                                    showStatusMessage('Đăng nhập thành công!');
+                                    updateUI();
+                                })
+                                .catch(error => {
+                                    showStatusMessage(`Lỗi khi lấy token: ${error.message}`, true);
+                                });
+                        }
+                    }
+                } catch (e) {
+                    // Bỏ qua lỗi cross-origin khi popup chuyển hướng đến domain khác
+                    // Điều này xảy ra khi popup chuyển hướng đến Google
+                }
+            }, 500);
+        }
+
+        // Đăng xuất
+        function logout() {
+            const idToken = localStorage.getItem('id_token');
+            
+                        // Xóa token khỏi localStorage
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('id_token');
+            localStorage.removeItem('expires_at');
+            localStorage.removeItem('oauth_state');
+            
+            // Chuyển hướng đến endpoint logout của Keycloak
+            const logoutUrl = `${keycloakConfig.url}/realms/${keycloakConfig.realm}/protocol/openid-connect/logout`;
+            const redirectUri = encodeURIComponent(window.location.origin);
+            
+            if (idToken) {
+                // Nếu có ID token, thực hiện RP-initiated logout
+                window.location.href = `${logoutUrl}?id_token_hint=${idToken}&post_logout_redirect_uri=${redirectUri}`;
+            } else {
+                // Nếu không có ID token, chỉ cập nhật UI
+                updateUI();
+                showStatusMessage('Đã đăng xuất thành công!');
+            }
+        }
+
+        // Khởi tạo khi trang tải
+        window.onload = function() {
+            // Kiểm tra nếu người dùng đã đăng nhập
+            updateUI();
+            
+            // Kiểm tra xem có phải vừa đăng nhập thành công không
+            const urlParams = new URLSearchParams(window.location.search);
+            const loginSuccess = urlParams.get('login_success');
+            
+            if (loginSuccess === 'true') {
+                showStatusMessage('Đăng nhập thành công!');
+                // Xóa tham số khỏi URL để tránh hiển thị lại thông báo khi làm mới trang
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        };
+    </script>
+</body>
+</html>
