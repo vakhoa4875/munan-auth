@@ -30,5 +30,6 @@ jobs:
           script: |
             cd ~/munan-auth
             git pull
+            ./export-realm.sh
             docker-compose down
             docker-compose up -d
